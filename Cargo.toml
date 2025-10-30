@@ -46,6 +46,11 @@ critical-section = "1.2"
 rp2040-boot2 = "0.3"
 libm = "0.2.15"
 
+# PIO assembler for defining PIO programs
+pio = "0.2"
+fixed = "1.28"
+fixed-macro = "1.2"
+
 [profile.release]
 debug = 2
 lto = true
