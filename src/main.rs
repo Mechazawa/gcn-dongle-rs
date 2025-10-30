@@ -3,6 +3,7 @@
 
 mod controller;
 mod controller_state;
+mod usb_logger;
 
 use defmt_rtt as _;
 use panic_probe as _;
@@ -22,10 +23,19 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Config::default());
 
     info!("GameCube Controller Dongle starting...");
+
+    // Initialize USB serial logging
+    let (usb_device, usb_class) = usb_logger::init_usb(p.USB);
+
+    // Spawn USB tasks
+    spawner.spawn(usb_logger::usb_task(usb_device).unwrap());
+    spawner.spawn(usb_logger::usb_logger_task(usb_class).unwrap());
+
+    usb_log!("=== System Initialized ===");
 
     // Initialize PIO for controller communication
     let pio::Pio {
@@ -42,31 +52,62 @@ async fn main(_spawner: Spawner) {
 
     // Initialize the controller
     info!("Initializing controller...");
+    usb_log!("Initializing GameCube controller on PIN_10...");
     controller.init().await;
 
     info!("Controller initialized!");
+    usb_log!("Controller ready!");
 
     // Main loop - poll controller state
+    let mut last_buttons = 0u16;
     loop {
         controller.update_state().await;
-        let state = ControllerState::from_raw(controller.get_controller_state());
 
-        // Log button presses
-        if state.a {
-            info!("A button pressed!");
-        }
-        if state.start {
-            info!("Start button pressed!");
+        // Create ControllerState view of the raw state (matches C++ pattern)
+        let state = ControllerState::new(controller.get_controller_state());
+
+        // Build current button state for change detection
+        let current_buttons = (u16::from(state.a()) << 0)
+            | (u16::from(state.b()) << 1)
+            | (u16::from(state.x()) << 2)
+            | (u16::from(state.y()) << 3)
+            | (u16::from(state.start()) << 4)
+            | (u16::from(state.z()) << 5)
+            | (u16::from(state.l()) << 6)
+            | (u16::from(state.r()) << 7);
+
+        // Log button state changes to USB (reduces spam)
+        if current_buttons != last_buttons {
+            usb_log!(
+                "Buttons: A={} B={} X={} Y={} Start={} Z={} L={} R={}",
+                u8::from(state.a()),
+                u8::from(state.b()),
+                u8::from(state.x()),
+                u8::from(state.y()),
+                u8::from(state.start()),
+                u8::from(state.z()),
+                u8::from(state.l()),
+                u8::from(state.r())
+            );
+            last_buttons = current_buttons;
         }
 
-        // Log analog stick positions
-        info!(
-            "Stick: ({}, {}), C-Stick: ({}, {})",
-            state.stick_x,
-            state.stick_y,
-            state.c_stick_x,
-            state.c_stick_y
-        );
+        // Log analog values periodically (every 60 polls = ~1 second at 60Hz)
+        static mut POLL_COUNT: u32 = 0;
+        unsafe {
+            POLL_COUNT += 1;
+            if POLL_COUNT % 60 == 0 {
+                usb_log!(
+                    "Analog - Stick:({},{}) C-Stick:({},{}) L:{} R:{}",
+                    state.ax(),
+                    state.ay(),
+                    state.cx(),
+                    state.cy(),
+                    state.al(),
+                    state.ar()
+                );
+            }
+        }
 
         // Wait a bit before next poll (60Hz = ~16.67ms)
         Timer::after_millis(17).await;

@@ -164,7 +164,7 @@ impl<'d, PIO: Instance, const SM: usize> Controller<'d, PIO, SM> {
         let cycles_per_bit = (T1 + T2) / 4;
         let frequency = 1_000_000f32; // 1 MHz
         let system_clock = 125_000_000f32; // 125 MHz for RP2040
-        let clock_div = system_clock / (cycles_per_bit as f32 * frequency);
+        let clock_div = system_clock / (f32::from(cycles_per_bit) * frequency);
         cfg.clock_divider = clock_div.to_fixed();
 
         // Don't join FIFOs - we need both TX and RX
@@ -197,7 +197,7 @@ impl<'d, PIO: Instance, const SM: usize> Controller<'d, PIO, SM> {
 
     /// Update the controller state
     pub async fn update_state(&mut self) {
-        let rumble_byte = if self.rumble { 1u8 } else { 0u8 };
+        let rumble_byte = u8::from(self.rumble);
         let request = [0x40u8, 0x03u8, rumble_byte];
         let mut temp_state = [0u8; 8];
         self.transfer(&request, &mut temp_state).await;
@@ -215,7 +215,7 @@ impl<'d, PIO: Instance, const SM: usize> Controller<'d, PIO, SM> {
 
         // Send request bytes
         for &byte in request {
-            self.sm.tx().wait_push((byte as u32) << 24).await;
+            self.sm.tx().wait_push(u32::from(byte) << 24).await;
         }
 
         // Receive response bytes with timeout
@@ -233,7 +233,7 @@ impl<'d, PIO: Instance, const SM: usize> Controller<'d, PIO, SM> {
                 embassy_futures::select::Either::First(data) => {
                     response[i] = (data & 0xFF) as u8;
                 }
-                embassy_futures::select::Either::Second(_) => {
+                embassy_futures::select::Either::Second(()) => {
                     // Timeout - leave rest of response as zeros
                     break;
                 }

@@ -1,89 +1,149 @@
 // GameCube controller state parser
-// This module parses the raw 8-byte controller state into individual fields
+// Matches the C++ ControllerState implementation exactly
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ControllerState {
-    // Buttons
-    pub a: bool,
-    pub b: bool,
-    pub x: bool,
-    pub y: bool,
-    pub start: bool,
-    pub z: bool,
-    pub l: bool,
-    pub r: bool,
-    pub d_up: bool,
-    pub d_down: bool,
-    pub d_left: bool,
-    pub d_right: bool,
+// GC Joystick ranges
+pub const GC_JOYSTICK_MIN: u8 = 0x00;
+pub const GC_JOYSTICK_MID: u8 = 0x80;
+pub const GC_JOYSTICK_MAX: u8 = 0xFF;
 
-    // Analog sticks (0-255, center is ~128)
-    pub stick_x: u8,
-    pub stick_y: u8,
-    pub c_stick_x: u8,
-    pub c_stick_y: u8,
+// GC First Byte masks
+const GC_MASK_A: u8 = 0x1;
+const GC_MASK_B: u8 = 0x1 << 1;
+const GC_MASK_X: u8 = 0x1 << 2;
+const GC_MASK_Y: u8 = 0x1 << 3;
+const GC_MASK_START: u8 = 0x1 << 4;
 
-    // Analog triggers (0-255)
-    pub l_analog: u8,
-    pub r_analog: u8,
+// GC Second Byte masks
+const GC_MASK_DPAD: u8 = 0xF;
+const GC_MASK_Z: u8 = 0x1 << 4;
+const GC_MASK_R: u8 = 0x1 << 5;
+const GC_MASK_L: u8 = 0x1 << 6;
+
+// D-pad directional values
+const GC_MASK_DPAD_UP: u8 = 0x8;
+const GC_MASK_DPAD_UPRIGHT: u8 = 0xA;
+const GC_MASK_DPAD_RIGHT: u8 = 0x2;
+const GC_MASK_DPAD_DOWNRIGHT: u8 = 0x6;
+const GC_MASK_DPAD_DOWN: u8 = 0x4;
+const GC_MASK_DPAD_DOWNLEFT: u8 = 0x5;
+const GC_MASK_DPAD_LEFT: u8 = 0x1;
+const GC_MASK_DPAD_UPLEFT: u8 = 0x9;
+
+/// D-pad hat position for USB HID reporting
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
+#[repr(u8)]
+pub enum HatPosition {
+    Idle = 0,
+    Up = 1,
+    UpRight = 2,
+    Right = 3,
+    DownRight = 4,
+    Down = 5,
+    DownLeft = 6,
+    Left = 7,
+    UpLeft = 8,
 }
 
-impl ControllerState {
-    /// Parse the raw 8-byte controller state
-    pub fn from_raw(raw: &[u8; 8]) -> Self {
-        // Byte 0: Buttons (high bits)
-        // Bit 7: 0 (unused)
-        // Bit 6: 0 (unused)
-        // Bit 5: 0 (unused)
-        // Bit 4: Start
-        // Bit 3: Y
-        // Bit 2: X
-        // Bit 1: B
-        // Bit 0: A
+/// GameCube controller state
+/// Holds a reference to the raw 8-byte state buffer
+#[derive(Debug, Clone, Copy)]
+pub struct ControllerState<'a> {
+    state: &'a [u8; 8],
+}
 
-        // Byte 1: Buttons (low bits)
-        // Bit 7: 1 (unused)
-        // Bit 6: L
-        // Bit 5: R
-        // Bit 4: Z
-        // Bit 3: D-pad Up
-        // Bit 2: D-pad Down
-        // Bit 1: D-pad Right
-        // Bit 0: D-pad Left
+impl<'a> ControllerState<'a> {
+    /// Create a new ControllerState from raw state buffer
+    pub fn new(state: &'a [u8; 8]) -> Self {
+        Self { state }
+    }
 
-        Self {
-            // Byte 0 buttons
-            start: (raw[0] & 0x10) != 0,
-            y: (raw[0] & 0x08) != 0,
-            x: (raw[0] & 0x04) != 0,
-            b: (raw[0] & 0x02) != 0,
-            a: (raw[0] & 0x01) != 0,
+    // Button getters
+    pub fn start(&self) -> bool {
+        (self.state[0] & GC_MASK_START) != 0
+    }
 
-            // Byte 1 buttons
-            l: (raw[1] & 0x40) != 0,
-            r: (raw[1] & 0x20) != 0,
-            z: (raw[1] & 0x10) != 0,
-            d_up: (raw[1] & 0x08) != 0,
-            d_down: (raw[1] & 0x04) != 0,
-            d_right: (raw[1] & 0x02) != 0,
-            d_left: (raw[1] & 0x01) != 0,
+    pub fn a(&self) -> bool {
+        (self.state[0] & GC_MASK_A) != 0
+    }
 
-            // Byte 2-3: Left stick
-            stick_x: raw[2],
-            stick_y: raw[3],
+    pub fn b(&self) -> bool {
+        (self.state[0] & GC_MASK_B) != 0
+    }
 
-            // Byte 4-5: C-stick
-            c_stick_x: raw[4],
-            c_stick_y: raw[5],
+    pub fn x(&self) -> bool {
+        (self.state[0] & GC_MASK_X) != 0
+    }
 
-            // Byte 6-7: Analog triggers
-            l_analog: raw[6],
-            r_analog: raw[7],
+    pub fn y(&self) -> bool {
+        (self.state[0] & GC_MASK_Y) != 0
+    }
+
+    pub fn l(&self) -> bool {
+        (self.state[1] & GC_MASK_L) != 0
+    }
+
+    pub fn r(&self) -> bool {
+        (self.state[1] & GC_MASK_R) != 0
+    }
+
+    pub fn z(&self) -> bool {
+        (self.state[1] & GC_MASK_Z) != 0
+    }
+
+    // D-pad getters
+    pub fn dpad_up(&self) -> bool {
+        (self.state[1] & GC_MASK_DPAD & GC_MASK_DPAD_UP) != 0
+    }
+
+    pub fn dpad_right(&self) -> bool {
+        (self.state[1] & GC_MASK_DPAD & GC_MASK_DPAD_RIGHT) != 0
+    }
+
+    pub fn dpad_down(&self) -> bool {
+        (self.state[1] & GC_MASK_DPAD & GC_MASK_DPAD_DOWN) != 0
+    }
+
+    pub fn dpad_left(&self) -> bool {
+        (self.state[1] & GC_MASK_DPAD & GC_MASK_DPAD_LEFT) != 0
+    }
+
+    /// Get the d-pad as a hat position for USB HID
+    pub fn dpad(&self) -> HatPosition {
+        match self.state[1] & GC_MASK_DPAD {
+            GC_MASK_DPAD_UP => HatPosition::Up,
+            GC_MASK_DPAD_UPRIGHT => HatPosition::UpRight,
+            GC_MASK_DPAD_RIGHT => HatPosition::Right,
+            GC_MASK_DPAD_DOWNRIGHT => HatPosition::DownRight,
+            GC_MASK_DPAD_DOWN => HatPosition::Down,
+            GC_MASK_DPAD_DOWNLEFT => HatPosition::DownLeft,
+            GC_MASK_DPAD_LEFT => HatPosition::Left,
+            GC_MASK_DPAD_UPLEFT => HatPosition::UpLeft,
+            _ => HatPosition::Idle,
         }
     }
 
-    /// Update the state from new raw data
-    pub fn update(&mut self, raw: &[u8; 8]) {
-        *self = Self::from_raw(raw);
+    // Analog stick getters
+    pub fn ax(&self) -> u8 {
+        self.state[2]
+    }
+
+    pub fn ay(&self) -> u8 {
+        self.state[3]
+    }
+
+    pub fn cx(&self) -> u8 {
+        self.state[4]
+    }
+
+    pub fn cy(&self) -> u8 {
+        self.state[5]
+    }
+
+    pub fn al(&self) -> u8 {
+        self.state[6]
+    }
+
+    pub fn ar(&self) -> u8 {
+        self.state[7]
     }
 }
